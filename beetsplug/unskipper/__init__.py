@@ -5,6 +5,8 @@ Beets plugin unskipper: browse and edit beets' import state file
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional, Dict
+
 from beets import ui
 from beets.plugins import BeetsPlugin
 
@@ -17,7 +19,7 @@ class UnskipperPlugin(BeetsPlugin):
     def __init__(self):
         super().__init__()
         # id(task) -> {'paths': ..., 'toppath': ..., 'task': ...}, until the task's outcome (imported/skipped) is known
-        self._pending: dict[int, dict] = {}
+        self._pending: Dict[int, dict] = {}
         self.register_listener('import_task_choice', self._on_choice)
         self.register_listener('import_task_files', self._on_files)
         self.register_listener('cli_exit', self._on_exit)
@@ -58,22 +60,64 @@ class UnskipperPlugin(BeetsPlugin):
         }
 
     def _on_files(self, session, task) -> None:
-        # Fires once a task's status is set to "not skipped"
+        # Fires once a task's status is set to "not skipped", after
+        # files have been moved/copied/linked
         rec = self._pending.pop(id(task), None)
         if rec is not None:
-            self._record(rec, outcome='imported')
+            self._record(
+                rec, outcome='imported',
+                operation=self._operation_name(session),
+                release=self._release_id(task),
+            )
 
     def _on_exit(self, lib) -> None:
         # Anything still pending never reached import_task_files: it was skipped
         for rec in self._pending.values():
-            self._record(rec, outcome='skipped')
+            self._record(rec, outcome='skipped', release=self._release_id(rec['task']))
         self._pending.clear()
 
-    def _record(self, rec: dict, outcome: str) -> None:
+    @staticmethod
+    def _operation_name(session) -> str | None:
+        # Mirrors logic in beets.importer.stages.manipulate_files
+        cfg = session.config
+
+        if cfg['move']:
+            return 'move'
+        if cfg['copy']:
+            return 'copy'
+        if cfg['link']:
+            return 'symlink'
+        if cfg['hardlink']:
+            return 'hardlink'
+        if cfg['reflink'].get() == 'auto':
+            return 'reflink_auto'
+        if cfg['reflink']:
+            return 'reflink'
+        return 'in-place'  # file left where it was
+
+    @staticmethod
+    def _release_id(task) -> str | None:
+        album = getattr(task, 'album', None)
+        if album is not None and getattr(album, 'mb_albumid', None):
+            return album.mb_albumid
+        match = getattr(task, 'match', None)
+        info = getattr(match, 'info', None) if match else None
+        return getattr(info, 'album_id', None) if info else None
+
+    def _record(self,
+        rec: dict,
+        outcome: str,
+        operation: Optional[str] = None,
+        release: Optional[str] = None,
+    ) -> None:
+
         path = sidecar.sidecar_path(default_state_path())
         data = sidecar.load(path)
+
         sidecar.record(
             data, rec['paths'], rec['toppath'], outcome,
             choice=rec['task'].choice_flag.name if rec['task'].choice_flag else None,
+            operation=operation,
+            release=release,
         )
         sidecar.save(path, data)

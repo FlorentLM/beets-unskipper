@@ -4,7 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional, Dict
 
 PathBytes = bytes
 
@@ -17,7 +17,7 @@ def path_key(paths: Iterable[PathBytes]) -> str:
     return '\x1f'.join(os.fsdecode(p) for p in paths)
 
 
-def load(path: Path) -> dict[str, dict]:
+def load(path: Path) -> Dict[str, dict]:
     try:
         with path.open('r', encoding='utf-8') as f:
             return json.load(f)
@@ -25,23 +25,26 @@ def load(path: Path) -> dict[str, dict]:
         return {}
 
 
-def save(path: Path, data: dict[str, dict]) -> None:
+def save(path: Path, data: Dict[str, dict]) -> None:
     with path.open('w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, sort_keys=True)
 
 
 def record(
-    data: dict[str, dict],
+    data: Dict[str, dict],
     paths: Iterable[PathBytes],
-    toppath: PathBytes | None,
+    toppath: Optional[PathBytes],
     outcome: str,
-    choice: str | None,
-    source: str = 'live',
+    choice: Optional[str],
+    operation: Optional[str] = None,
+    release: Optional[str] = None,
 ) -> None:
+
     data[path_key(paths)] = {
         'toppath': os.fsdecode(toppath) if toppath else None,
         'outcome': outcome,
         'choice': choice,
-        'source': source,
+        'operation': operation,
+        'release': release,
         'ts': time.time(),
     }

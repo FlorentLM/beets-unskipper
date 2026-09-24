@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Optional, Dict, Tuple, List
 
 from . import sidecar
 from .statefile import StateFileData, load, save
@@ -25,7 +26,7 @@ class Row:
     kind: Kind
     key: object  # taghistory: the path tuple, tagprogress: the toppath
     label: str
-    group: str | None = None  # decoded toppath this row belongs to (if known)
+    group: Optional[str] = None  # decoded toppath this row belongs to (if known)
     missing: bool = False
     marked: bool = False
 
@@ -56,13 +57,13 @@ def _strip_toppath(path: str, toppath: str) -> str:
 
 def build_rows(
     state: StateFileData,
-    sidecar_data: dict[str, dict] | None = None,
-) -> list[Row]:
+    sidecar_data: Optional[Dict[str, dict]] = None,
+) -> List[Row]:
     """
     Flatten the two tables into a single list of rows grouped by toppath.
     """
 
-    rows: list[Row] = []
+    rows: List[Row] = []
     sidecar_data = sidecar_data or {}
 
     for paths in sorted(state.taghistory):
@@ -105,8 +106,8 @@ class UnskipperApp:
         self.path = path
         self.state: StateFileData = load(path)
         self.sidecar_path = sidecar.sidecar_path(path)
-        self.sidecar_data: dict[str, dict] = sidecar.load(self.sidecar_path)
-        self.rows: list[Row] = build_rows(self.state, self.sidecar_data)
+        self.sidecar_data: Dict[str, dict] = sidecar.load(self.sidecar_path)
+        self.rows: List[Row] = build_rows(self.state, self.sidecar_data)
         self.cursor = 0
         self.top = 0
         self.dirty = False
@@ -173,12 +174,12 @@ class UnskipperApp:
         stdscr.addnstr(height - 1, 0, footer, width - 1, curses.A_DIM)
         stdscr.refresh()
 
-    def _build_display_lines(self) -> list[tuple[str, int | None, bool]]:
+    def _build_display_lines(self) -> List[Tuple[str, Optional[int], bool]]:
         """
         Rows, and with group-header lines for toppaths that have
         no progress entry themselves.
         """
-        display: list[tuple[str, int | None, bool]] = []
+        display: List[Tuple[str, Optional[int], bool]] = []
         last_group = object()  # sentinel, unequal to any real group
 
         for idx, row in enumerate(self.rows):
@@ -223,7 +224,7 @@ class UnskipperApp:
         if not self.rows:
             stdscr.addnstr(y0, x0, "(state file is empty)", width, curses.A_DIM)
 
-    def _row_attr(self, row_idx: int | None, is_header: bool) -> int:
+    def _row_attr(self, row_idx: Optional[int], is_header: bool) -> int:
 
         if is_header:
             return self._pair(PAIR_HEADER) | curses.A_BOLD
@@ -283,9 +284,9 @@ class UnskipperApp:
             return curses.A_BOLD
         return curses.A_NORMAL
 
-    def _build_details(self, row: Row) -> list[tuple[str, str, str]]:
+    def _build_details(self, row: Row) -> List[Tuple[str, str, str]]:
 
-        lines: list[tuple[str, str, str]] = [
+        lines: List[Tuple[str, str, str]] = [
             ("Kind: ", row.kind.value, 'plain'),
             ("", "", 'plain'),
         ]
@@ -299,16 +300,25 @@ class UnskipperApp:
 
             info = self.sidecar_data.get(sidecar.path_key(paths))
             lines.append(("", "", 'plain'))
+
             if info:
                 lines.append(("Details:", "", 'label'))
                 outcome = info.get('outcome')
                 outcome_style = {'imported': 'imported', 'skipped': 'skipped'}.get(outcome, 'plain')
+
                 lines.append(("  Outcome: ", str(outcome), outcome_style))
-                lines.append(("  Choice: ", str(info.get('choice')), 'plain'))
-                lines.append(("  Source: ", str(info.get('source')), 'plain'))
+                lines.append(("  Choice: ", str(info.get('choice')).title(), 'plain'))
+
+                if info.get('operation'):
+                    lines.append(("  Operation: ", str(info['operation']), 'plain'))
+
+                if info.get('release'):
+                    lines.append(("  Release: ", f"https://musicbrainz.org/release/{str(info['release'])}", 'plain'))
+
                 if info.get('toppath'):
                     style = 'plain' if os.path.exists(os.fsencode(info['toppath'])) else 'missing'
                     lines.append(("  Top path: ", info['toppath'], style))
+
                 ts = info.get('ts')
                 if ts:
                     stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
