@@ -70,13 +70,16 @@ def build_rows(
         shown = _decode(paths[0]) if paths else "<empty>"
         info = sidecar_data.get(sidecar.path_key(paths))
         group = info.get('toppath') if info else None
+
         if group:
             shown = _strip_toppath(shown, group)
         if len(paths) > 1:
             shown += f"  (+{len(paths) - 1} more)"
-        if info:
-            shown += f"  [{info['outcome']}]"
+
         missing = not all(os.path.exists(p) for p in paths)
+        # if missing:
+        #     shown += f"  [missing files!]"
+
         rows.append(Row(Kind.HISTORY, paths, shown, group=group, missing=missing))
 
     for toppath, imported in sorted(state.tagprogress.items()):
@@ -117,6 +120,7 @@ class UnskipperApp:
 
     def _main(self, stdscr) -> None:
         curses.curs_set(0)
+        curses.raw()
         stdscr.keypad(True)
         self._init_colors()
 
@@ -169,7 +173,14 @@ class UnskipperApp:
                 stdscr.addstr(1 + i, list_width, '│')
             self._draw_details(stdscr, 1, list_width + 1, width - list_width - 1, visible)
 
-        footer = " ↑/↓ move  space mark  d delete marked  w write  q quit"
+        footer = '  |  '.join([
+            '↑/↓: move',
+            'space: mark',
+            'del: delete marked',
+            '^s: save',
+            'esc: quit',
+            'a-z: jump to letter'
+        ])
 
         stdscr.addnstr(height - 1, 0, footer, width - 1, curses.A_DIM)
         stdscr.refresh()
@@ -189,7 +200,7 @@ class UnskipperApp:
                     header = row.group if row.group is not None else UNKNOWN_GROUP
                     display.append((f" {header}", None, True))
 
-            mark = '[x]' if row.marked else '[ ]'
+            mark = '[•]' if row.marked else '[ ]'
             if row.kind is Kind.PROGRESS:
                 line = f'{mark} {row.label}'
             else:
@@ -242,6 +253,7 @@ class UnskipperApp:
             return self._pair(PAIR_SELECTED)
         if row.missing:
             return self._pair(PAIR_MISSING) | curses.A_BOLD
+
         return curses.A_NORMAL
 
     def _draw_details(self, stdscr, y0: int, x0: int, width: int, visible: int) -> None:
@@ -340,21 +352,35 @@ class UnskipperApp:
 
     def _handle_key(self, key: int) -> bool:
 
-        if key in (ord('q'), 27):  # q or Esc
+        if key == 27:  # Esc
             return False
-        elif key in (ord('j'), curses.KEY_DOWN):
+        elif key == curses.KEY_DOWN:
             self.cursor = min(self.cursor + 1, max(len(self.rows) - 1, 0))
-        elif key in (ord('k'), curses.KEY_UP):
+        elif key == curses.KEY_UP:
             self.cursor = max(self.cursor - 1, 0)
         elif key == ord(' '):
             if self.rows:
                 self.rows[self.cursor].marked = not self.rows[self.cursor].marked
-        elif key == ord('d'):
+        elif key == curses.KEY_DC:
             self._delete_marked()
-        elif key == ord('w'):
+        elif key == 19:  # ctrl + s
             self._write()
+        elif 0 <= key < 256 and chr(key).isalpha():
+            self._jump_to_letter(chr(key).lower())
 
         return True
+
+    def _jump_to_letter(self, ch: str) -> None:
+
+        n = len(self.rows)
+        if not n:
+            return
+
+        for offset in range(1, n + 1):
+            idx = (self.cursor + offset) % n
+            if self.rows[idx].label.lower().startswith(ch):
+                self.cursor = idx
+                return
 
     def _delete_marked(self) -> None:
 

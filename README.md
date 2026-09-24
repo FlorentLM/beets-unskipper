@@ -46,11 +46,12 @@ beet unskipper -f /path/to/state.pickle
 
 ### Keys
 
-| Key         | Action                                                     |
-|-------------|------------------------------------------------------------|
-| `↓`         | move down                                                  |
-| `↑`         | move up                                                    |
-| `space`     | mark/unmark the current row                                |
-| `d`         | delete marked rows (or the current one if none are marked) |
-| `w`         | write changes back to the state file                       |
-| `q` / `Esc` | quit                                                       |
+| Key            | Action                                                      |
+|----------------|---------------------------------------------------------------|
+| `↓`            | move down                                                    |
+| `↑`            | move up                                                      |
+| `a`-`z`        | jump to the next row starting with that letter               |
+| `space`        | mark/unmark the current row                                  |
+| `Del`          | delete marked rows (or the current one if none are marked)   |
+| `Ctrl+S`       | write changes back to the state file                         |
+| `Ctrl+Q`/`Esc` | quit                                                          |
