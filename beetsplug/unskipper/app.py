@@ -406,7 +406,7 @@ class UnskipperApp:
         elif key == ord(' '):
             if self.rows:
                 self.rows[self.cursor].marked = not self.rows[self.cursor].marked
-        elif key == curses.KEY_DC:
+        elif key in (curses.KEY_DC, curses.KEY_BACKSPACE, 127, 8):
             self._delete_marked()
         elif key == 19:  # ctrl + s
             self._write()
