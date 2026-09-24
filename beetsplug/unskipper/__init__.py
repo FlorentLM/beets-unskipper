@@ -78,6 +78,7 @@ class UnskipperPlugin(BeetsPlugin):
                 rec, outcome='imported',
                 operation=self._operation_name(session),
                 release=self._release_id(task),
+                dest_paths=[item.path for item in task.imported_items()],
             )
 
     def _on_exit(self, lib) -> None:
@@ -131,6 +132,7 @@ class UnskipperPlugin(BeetsPlugin):
         outcome: str,
         operation: Optional[str] = None,
         release: Optional[str] = None,
+        dest_paths: Optional[list] = None,
     ) -> None:
 
         path = sidecar.sidecar_path(default_state_path())
@@ -145,6 +147,7 @@ class UnskipperPlugin(BeetsPlugin):
             kind='album' if rec['task'].is_album else 'singleton',
             in_tagprogress=self._in_tagprogress(session),
             in_taghistory=self._in_taghistory(session, outcome),
+            dest_paths=dest_paths,
         )
         sidecar.save(path, data)
 

@@ -4,7 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Iterable, Optional, Dict
+from typing import Iterable, Optional, Dict, Sequence
 
 PathBytes = bytes
 
@@ -45,6 +45,7 @@ def record(
     kind: str = 'album',
     in_tagprogress: bool = False,
     in_taghistory: bool = False,
+    dest_paths: Optional[Sequence[PathBytes]] = None,
 ) -> None:
 
     data[path_key(paths)] = {
@@ -56,6 +57,7 @@ def record(
         'kind': kind,
         'in_tagprogress': in_tagprogress,
         'in_taghistory': in_taghistory,
+        'dest_paths': [os.fsdecode(p) for p in dest_paths] if dest_paths else None,
         'ts': time.time(),
     }
 

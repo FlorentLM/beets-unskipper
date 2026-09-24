@@ -324,6 +324,13 @@ class UnskipperApp:
                 if info.get('operation'):
                     lines.append(("  Operation: ", str(info['operation']), 'plain'))
 
+                dest_paths = info.get('dest_paths')
+                if dest_paths:
+                    lines.append(("  Destination:", "", 'plain'))
+                    for dest in dest_paths:
+                        style = 'plain' if os.path.exists(dest) else 'missing'
+                        lines.append(("", f"    {dest}", style))
+
                 if info.get('release'):
                     lines.append(("  Release: ", f"https://musicbrainz.org/release/{str(info['release'])}", 'plain'))
 
