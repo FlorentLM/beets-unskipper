@@ -13,18 +13,20 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple, List
 
 from . import sidecar
+from . import scan
 from .statefile import StateFileData, load, save
 
 
 class Kind(Enum):
     HISTORY = 'history'
     PROGRESS = 'progress'
+    NEW = 'new'
 
 
 @dataclass
 class Row:
     kind: Kind
-    key: object  # taghistory: the path tuple, tagprogress: the toppath
+    key: object  # taghistory: the path tuple, tagprogress: the toppath, new: (folder, files)
     label: str
     group: Optional[str] = None  # decoded toppath this row belongs to (if known)
     missing: bool = False
@@ -40,6 +42,7 @@ PAIR_HEADER = 3
 PAIR_MISSING = 4
 PAIR_IMPORTED = 5
 PAIR_SKIPPED = 6
+PAIR_NEW = 7
 
 
 def _decode(path: bytes) -> str:
@@ -58,6 +61,7 @@ def _strip_toppath(path: str, toppath: str) -> str:
 def build_rows(
     state: StateFileData,
     sidecar_data: Optional[Dict[str, dict]] = None,
+    audio_folders: Optional[List[Tuple[bytes, bytes, List[bytes]]]] = None,
 ) -> List[Row]:
     """
     Flatten the two tables into a single list of rows grouped by toppath.
@@ -92,6 +96,22 @@ def build_rows(
             missing=not os.path.exists(toppath),
         ))
 
+    known_paths = set()
+
+    for paths in state.taghistory:
+        known_paths.update(paths)
+
+    for imported in state.tagprogress.values():
+        known_paths.update(imported)
+
+    for toppath, folder, files in audio_folders or []:
+        if any(f in known_paths for f in files):
+            continue  # At least one file here has been seen before
+
+        group = _decode(toppath)
+        shown = _strip_toppath(_decode(folder), group)
+        rows.append(Row(Kind.NEW, (folder, tuple(files)), f"[new] {shown}", group=group))
+
     # Group by toppath (unknown groups last)
     # Within a group, the progress entry acts as header
     rows.sort(key=lambda r: (
@@ -110,7 +130,14 @@ class UnskipperApp:
         self.state: StateFileData = load(path)
         self.sidecar_path = sidecar.sidecar_path(path)
         self.sidecar_data: Dict[str, dict] = sidecar.load(self.sidecar_path)
-        self.rows: List[Row] = build_rows(self.state, self.sidecar_data)
+
+        toppaths = set(self.state.tagprogress.keys())
+        for info in self.sidecar_data.values():
+            if info.get('toppath'):
+                toppaths.add(os.fsencode(info['toppath']))
+        self.audio_folders = scan.scan_audio_folders(toppaths)
+
+        self.rows: List[Row] = build_rows(self.state, self.sidecar_data, self.audio_folders)
         self.cursor = 0
         self.top = 0
         self.dirty = False
@@ -148,6 +175,7 @@ class UnskipperApp:
             curses.init_pair(PAIR_MISSING, curses.COLOR_RED, bg)
             curses.init_pair(PAIR_IMPORTED, curses.COLOR_GREEN, bg)
             curses.init_pair(PAIR_SKIPPED, curses.COLOR_YELLOW, bg)
+            curses.init_pair(PAIR_NEW, curses.COLOR_MAGENTA, bg)
             self.has_color = True
         except curses.error:
             self.has_color = False
@@ -253,6 +281,8 @@ class UnskipperApp:
             return self._pair(PAIR_SELECTED)
         if row.missing:
             return self._pair(PAIR_MISSING) | curses.A_BOLD
+        if row.kind is Kind.NEW:
+            return self._pair(PAIR_NEW) | curses.A_BOLD
 
         return curses.A_NORMAL
 
@@ -344,7 +374,7 @@ class UnskipperApp:
                     lines.append(("  Recorded: ", stamp, 'dim'))
             else:
                 lines.append(("", "No record (outcome unknown).", 'dim'))
-        else:
+        elif row.kind is Kind.PROGRESS:
             toppath = row.key
             imported = self.state.tagprogress.get(toppath, [])
             top_style = 'plain' if os.path.exists(toppath) else 'missing'
@@ -354,6 +384,14 @@ class UnskipperApp:
             for p in sorted(imported):
                 style = 'plain' if os.path.exists(p) else 'missing'
                 lines.append(("", f"  {_decode(p)}", style))
+
+        else:  # Kind.NEW
+            folder, files = row.key
+            lines.append(("Folder: ", _decode(folder), 'plain'))
+            lines.append(("", "", 'plain'))
+            lines.append((f"Audio files ({len(files)}):", "", 'label'))
+            for p in files:
+                lines.append(("", f"  {_decode(p)}", 'plain'))
 
         return lines
 
@@ -399,10 +437,10 @@ class UnskipperApp:
             if row.kind is Kind.HISTORY:
                 self.state.taghistory.discard(row.key)
                 self.sidecar_data.pop(sidecar.path_key(row.key), None)
-            else:
+            elif row.kind is Kind.PROGRESS:
                 self.state.tagprogress.pop(row.key, None)
 
-        self.rows = build_rows(self.state, self.sidecar_data)
+        self.rows = build_rows(self.state, self.sidecar_data, self.audio_folders)
         self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
         self.dirty = True
 
