@@ -14,6 +14,7 @@ from typing import Optional, Dict, Tuple, List
 
 from . import sidecar
 from . import scan
+from . import pathremap
 from .statefile import StateFileData, load, save
 
 
@@ -105,8 +106,9 @@ def build_rows(
         known_paths.update(imported)
 
     for toppath, folder, files in audio_folders or []:
-        if any(f in known_paths for f in files):
-            continue  # At least one file here has been seen before
+
+        if folder in known_paths or any(f in known_paths for f in files):
+            continue  # This folder (or a file in it) has been seen before
 
         group = _decode(toppath)
         shown = _strip_toppath(_decode(folder), group)
@@ -125,11 +127,17 @@ def build_rows(
 
 class UnskipperApp:
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, remap: Optional[Tuple[str, str]] = None):
         self.path = path
         self.state: StateFileData = load(path)
         self.sidecar_path = sidecar.sidecar_path(path)
         self.sidecar_data: Dict[str, dict] = sidecar.load(self.sidecar_path)
+
+        self.remap = remap
+        if remap:
+            old, new = remap
+            self.state = pathremap.remap_state(self.state, old, new)
+            self.sidecar_data = pathremap.remap_sidecar(self.sidecar_data, old, new)
 
         toppaths = set(self.state.tagprogress.keys())
         for info in self.sidecar_data.values():
@@ -188,7 +196,8 @@ class UnskipperApp:
         stdscr.erase()
         height, width = stdscr.getmaxyx()
 
-        header = f" unskipper - {self.path} {'*' if self.dirty else ''}"
+        remap_note = f"  [remapped {self.remap[0]} -> {self.remap[1]}]" if self.remap else ''
+        header = f" unskipper - {self.path}{remap_note} {'*' if self.dirty else ''}"
         stdscr.addnstr(0, 0, header, width - 1, curses.A_REVERSE)
 
         visible = max(height - 2, 0)

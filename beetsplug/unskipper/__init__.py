@@ -12,6 +12,7 @@ from beets.importer import SentinelImportTask
 from beets.plugins import BeetsPlugin
 
 from . import sidecar
+from . import pathremap
 from .statefile import default_state_path
 
 
@@ -37,7 +38,13 @@ class UnskipperPlugin(BeetsPlugin):
         cmd.parser.add_option(
             '-f', '--file',
             dest='state_file',
-            help='Path to state.pickle (defaults to the configured statefile)',
+            help='Path to state.pickle',
+        )
+        cmd.parser.add_option(
+            '-r', '--remap',
+            dest='remap',
+            metavar='OLD=NEW',
+            help='Remap paths starting with OLD to start with NEW when loading',
         )
         cmd.func = self._run
         return [cmd]
@@ -49,7 +56,14 @@ class UnskipperPlugin(BeetsPlugin):
         if not path.exists():
             raise ui.UserError(f'State file not found: {path}')
 
-        UnskipperApp(path).run()
+        remap = None
+        if opts.remap:
+            try:
+                remap = pathremap.parse_remap_arg(opts.remap)
+            except ValueError as exc:
+                raise ui.UserError(f'--remap {exc}')
+
+        UnskipperApp(path, remap=remap).run()
 
     # Import-time sidecar recording
 
