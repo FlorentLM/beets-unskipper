@@ -51,7 +51,7 @@ def remap_sidecar(data: Dict[str, dict], old: str, new: str) -> Dict[str, dict]:
             if toppath:
                 new_toppath = remap_str(toppath, old_stripped, new_stripped)
                 new_info['toppath'] = new_toppath
-                new_key = '\x00import-done\x00' + new_toppath
+                new_key = sidecar.import_done_key(new_toppath)
             remapped[new_key] = new_info
             continue
 

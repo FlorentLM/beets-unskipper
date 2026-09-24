@@ -9,6 +9,10 @@ from typing import Iterable, Optional, Dict, Sequence
 PathBytes = bytes
 
 
+def import_done_key(toppath: str) -> str:
+    return '\x00import-done\x00' + toppath
+
+
 def sidecar_path(state_path: Path) -> Path:
     return state_path.with_name(state_path.stem + '.unskipper.json')
 
@@ -65,7 +69,7 @@ def record_import_done(data: Dict[str, dict], toppath: PathBytes) -> None:
     """
     Records when beets finished scanning `toppath`.
     """
-    data['\x00import-done\x00' + os.fsdecode(toppath)] = {
+    data[import_done_key(os.fsdecode(toppath))] = {
         'kind': 'import-done',
         'toppath': os.fsdecode(toppath),
         'ts': time.time(),
