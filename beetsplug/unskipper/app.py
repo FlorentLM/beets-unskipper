@@ -7,6 +7,7 @@ from __future__ import annotations
 import curses
 import os
 import time
+import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -48,6 +49,22 @@ PAIR_NEW = 7
 
 def _decode(path: bytes) -> str:
     return os.fsdecode(path)
+
+
+def _norm_key(path: bytes) -> str:
+    return unicodedata.normalize('NFC', _decode(path))
+
+
+def _format_size(path: bytes) -> str:
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return '?'
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if size < 1024 or unit == 'GB':
+            return f"{size:.0f} {unit}" if unit == 'B' else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
 
 
 def _strip_toppath(path: str, toppath: str) -> str:
@@ -100,19 +117,19 @@ def build_rows(
     known_paths = set()
 
     for paths in state.taghistory:
-        known_paths.update(paths)
+        known_paths.update(_norm_key(p) for p in paths)
 
     for imported in state.tagprogress.values():
-        known_paths.update(imported)
+        known_paths.update(_norm_key(p) for p in imported)
 
     for toppath, folder, files in audio_folders or []:
 
-        if folder in known_paths or any(f in known_paths for f in files):
+        if _norm_key(folder) in known_paths or any(_norm_key(f) in known_paths for f in files):
             continue  # This folder (or a file in it) has been seen before
 
         group = _decode(toppath)
         shown = _strip_toppath(_decode(folder), group)
-        rows.append(Row(Kind.NEW, (folder, tuple(files)), f"[new] {shown}", group=group))
+        rows.append(Row(Kind.NEW, (folder, tuple(files)), shown, group=group))
 
     # Group by toppath (unknown groups last)
     # Within a group, the progress entry acts as header
@@ -191,6 +208,25 @@ class UnskipperApp:
     def _pair(self, n: int) -> int:
         return curses.color_pair(n) if self.has_color else 0
 
+    def _stats(self) -> Dict[str, int]:
+
+        counts = {'imported': 0, 'skipped': 0, 'unknown': 0, 'in progress': 0, 'new': 0}
+
+        for row in self.rows:
+            if row.kind is Kind.NEW:
+                counts['new'] += 1
+            elif row.kind is Kind.PROGRESS:
+                counts['in progress'] += 1
+            elif row.kind is Kind.HISTORY:
+                info = self.sidecar_data.get(sidecar.path_key(row.key))
+                outcome = info.get('outcome') if info else None
+                if outcome in ('imported', 'skipped'):
+                    counts[outcome] += 1
+                else:
+                    counts['unknown'] += 1
+
+        return counts
+
     def _draw(self, stdscr) -> None:
 
         stdscr.erase()
@@ -200,15 +236,26 @@ class UnskipperApp:
         header = f" unskipper - {self.path}{remap_note} {'*' if self.dirty else ''}"
         stdscr.addnstr(0, 0, header, width - 1, curses.A_REVERSE)
 
-        visible = max(height - 2, 0)
+        stats = self._stats()
+        stats_line = '  |  '.join([
+            f"Total: {len(self.rows)}",
+            f"Imported: {stats['imported']}",
+            f"Skipped: {stats['skipped']}",
+            f"Unknown: {stats['unknown']}",
+            f"In progress: {stats['in progress']}",
+            f"New: {stats['new']}",
+        ])
+        stdscr.addnstr(1, 0, stats_line.ljust(width - 1), width - 1, curses.A_DIM)
+
+        visible = max(height - 3, 0)
         list_width = max(min(width // 2, 80), 30) if width > 40 else width
 
-        self._draw_list(stdscr, 1, 0, list_width, visible)
+        self._draw_list(stdscr, 2, 0, list_width, visible)
 
         if width > 40:
             for i in range(visible):
-                stdscr.addstr(1 + i, list_width, '│')
-            self._draw_details(stdscr, 1, list_width + 1, width - list_width - 1, visible)
+                stdscr.addstr(2 + i, list_width, '│')
+            self._draw_details(stdscr, 2, list_width + 1, width - list_width - 1, visible)
 
         footer = '  |  '.join([
             '↑/↓: move',
@@ -237,7 +284,10 @@ class UnskipperApp:
                     header = row.group if row.group is not None else UNKNOWN_GROUP
                     display.append((f" {header}", None, True))
 
-            mark = '[•]' if row.marked else '[ ]'
+            if row.kind is Kind.NEW:
+                mark = '[●]'
+            else:
+                mark = '[✕]' if row.marked else '[ ]'
             if row.kind is Kind.PROGRESS:
                 line = f'{mark} {row.label}'
             else:
@@ -396,11 +446,13 @@ class UnskipperApp:
 
         else:  # Kind.NEW
             folder, files = row.key
-            lines.append(("Folder: ", _decode(folder), 'plain'))
+            decoded_folder = _decode(folder)
+            lines.append(("Folder: ", decoded_folder, 'plain'))
             lines.append(("", "", 'plain'))
             lines.append((f"Audio files ({len(files)}):", "", 'label'))
             for p in files:
-                lines.append(("", f"  {_decode(p)}", 'plain'))
+                name = _strip_toppath(_decode(p), decoded_folder)
+                lines.append(("", f"  {name}  ({_format_size(p)})", 'plain'))
 
         return lines
 
@@ -413,7 +465,7 @@ class UnskipperApp:
         elif key == curses.KEY_UP:
             self.cursor = max(self.cursor - 1, 0)
         elif key == ord(' '):
-            if self.rows:
+            if self.rows and self.rows[self.cursor].kind is not Kind.NEW:
                 self.rows[self.cursor].marked = not self.rows[self.cursor].marked
         elif key in (curses.KEY_DC, curses.KEY_BACKSPACE, 127, 8):
             self._delete_marked()
