@@ -164,7 +164,7 @@ class UnskipperApp:
         stdscr.addnstr(0, 0, header, width - 1, curses.A_REVERSE)
 
         visible = max(height - 2, 0)
-        list_width = max(min(width // 2, 60), 20) if width > 40 else width
+        list_width = max(min(width // 2, 80), 30) if width > 40 else width
 
         self._draw_list(stdscr, 1, 0, list_width, visible)
 
