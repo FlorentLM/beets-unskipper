@@ -318,8 +318,8 @@ class UnskipperApp:
                 outcome = info.get('outcome')
                 outcome_style = {'imported': 'imported', 'skipped': 'skipped'}.get(outcome, 'plain')
 
-                lines.append(("  Outcome: ", str(outcome), outcome_style))
                 lines.append(("  Choice: ", str(info.get('choice')).title(), 'plain'))
+                lines.append(("  Outcome: ", str(outcome), outcome_style))
 
                 if info.get('operation'):
                     lines.append(("  Operation: ", str(info['operation']), 'plain'))

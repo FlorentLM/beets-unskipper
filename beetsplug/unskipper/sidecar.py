@@ -17,6 +17,10 @@ def path_key(paths: Iterable[PathBytes]) -> str:
     return '\x1f'.join(os.fsdecode(p) for p in paths)
 
 
+def decode_path_key(key: str) -> tuple[PathBytes, ...]:
+    return tuple(os.fsencode(p) for p in key.split('\x1f'))
+
+
 def load(path: Path) -> Dict[str, dict]:
     try:
         with path.open('r', encoding='utf-8') as f:
@@ -38,6 +42,9 @@ def record(
     choice: Optional[str],
     operation: Optional[str] = None,
     release: Optional[str] = None,
+    kind: str = 'album',
+    in_tagprogress: bool = False,
+    in_taghistory: bool = False,
 ) -> None:
 
     data[path_key(paths)] = {
@@ -46,5 +53,18 @@ def record(
         'choice': choice,
         'operation': operation,
         'release': release,
+        'kind': kind,
+        'in_tagprogress': in_tagprogress,
+        'in_taghistory': in_taghistory,
+        'ts': time.time(),
+    }
+
+def record_import_done(data: Dict[str, dict], toppath: PathBytes) -> None:
+    """
+    Records when beets finished scanning `toppath`.
+    """
+    data['\x00import-done\x00' + os.fsdecode(toppath)] = {
+        'kind': 'import-done',
+        'toppath': os.fsdecode(toppath),
         'ts': time.time(),
     }
