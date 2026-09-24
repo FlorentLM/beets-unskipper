@@ -13,7 +13,7 @@ from beets.plugins import BeetsPlugin
 
 from . import sidecar
 from . import pathremap
-from .statefile import default_state_path
+from .statefile import default_state_path, StateFileData
 
 
 class UnskipperPlugin(BeetsPlugin):
@@ -36,15 +36,28 @@ class UnskipperPlugin(BeetsPlugin):
             help="Browse/edit beets' import state file",
         )
         cmd.parser.add_option(
-            '-f', '--file',
+            '-s', '--state-file',
             dest='state_file',
             help='Path to state.pickle',
+        )
+        cmd.parser.add_option(
+            '-j', '--unskipper-json',
+            dest='sidecar_file',
+            help='Path to the unskipper sidecar JSON (defaults to alongside the state file)',
         )
         cmd.parser.add_option(
             '-r', '--remap',
             dest='remap',
             metavar='OLD=NEW',
             help='Remap paths starting with OLD to start with NEW when loading',
+        )
+        cmd.parser.add_option(
+            '--rebuild', action='store_true', dest='rebuild',
+            help="Overwrite state.pickle by rebuilding it from the sidecar JSON",
+        )
+        cmd.parser.add_option(
+            '-d', '--dry-run', action='store_true', dest='dry_run',
+            help="With --rebuild, print a summary of what would change without writing state.pickle",
         )
         cmd.func = self._run
         return [cmd]
@@ -53,8 +66,7 @@ class UnskipperPlugin(BeetsPlugin):
         from .app import UnskipperApp
 
         path = Path(opts.state_file) if opts.state_file else default_state_path()
-        if not path.exists():
-            raise ui.UserError(f'State file not found: {path}')
+        sidecar_path = Path(opts.sidecar_file) if opts.sidecar_file else sidecar.sidecar_path(path)
 
         remap = None
         if opts.remap:
@@ -63,7 +75,71 @@ class UnskipperPlugin(BeetsPlugin):
             except ValueError as exc:
                 raise ui.UserError(f'--remap {exc}')
 
-        UnskipperApp(path, remap=remap).run()
+        if opts.rebuild:
+            self._rebuild(path, sidecar_path, remap, dry_run=bool(opts.dry_run))
+            return
+
+        if not path.exists():
+            raise ui.UserError(f'State file not found: {path}')
+
+        UnskipperApp(path, remap=remap, sidecar_path=sidecar_path).run()
+
+    @staticmethod
+    def _rebuild(path: Path, sidecar_path: Path, remap, dry_run: bool = False) -> None:
+        from .statefile import StateFileData, from_sidecar, load as load_state, save as save_state
+
+        if not sidecar_path.exists():
+            raise ui.UserError(f'Sidecar file not found: {sidecar_path}')
+
+        data = sidecar.load(sidecar_path)
+        if remap:
+            old, new = remap
+            data = pathremap.remap_sidecar(data, old, new)
+
+        new_state = from_sidecar(data)
+
+        if dry_run:
+            old_state = load_state(path) if path.exists() else StateFileData()
+            UnskipperPlugin._print_rebuild_diff(path, old_state, new_state)
+            return
+
+        if path.exists() and not ui.input_yn(
+            f'This will overwrite {path}. Continue?', require=True
+        ):
+            return
+
+        save_state(path, new_state)
+        print(
+            f'Rebuilt {path} from {sidecar_path} '
+            f'({len(new_state.taghistory)} taghistory entries, '
+            f'{len(new_state.tagprogress)} tagprogress toppaths)'
+        )
+
+    @staticmethod
+    def _print_rebuild_diff(path: Path, old_state: StateFileData, new_state: StateFileData) -> None:
+        added_history = new_state.taghistory - old_state.taghistory
+        removed_history = old_state.taghistory - new_state.taghistory
+
+        old_toppaths = set(old_state.tagprogress)
+        new_toppaths = set(new_state.tagprogress)
+
+        added_progress = new_toppaths - old_toppaths
+        removed_progress = old_toppaths - new_toppaths
+
+        changed_progress = {
+            t for t in old_toppaths & new_toppaths
+            if old_state.tagprogress[t] != new_state.tagprogress[t]
+        }
+
+        print(f'Rebuild preview for {path} (dry run):')
+        print(
+            f'  taghistory: {len(old_state.taghistory)} -> {len(new_state.taghistory)} entries '
+            f'(+{len(added_history)}, -{len(removed_history)})'
+        )
+        print(
+            f'  tagprogress: {len(old_state.tagprogress)} -> {len(new_state.tagprogress)} toppaths '
+            f'(+{len(added_progress)}, -{len(removed_progress)}, ~{len(changed_progress)} changed)'
+        )
 
     # Import-time sidecar recording
 

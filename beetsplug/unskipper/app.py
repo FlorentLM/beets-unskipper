@@ -23,6 +23,7 @@ class Kind(Enum):
     HISTORY = 'history'
     PROGRESS = 'progress'
     NEW = 'new'
+    SIDECAR_ONLY = 'sidecar-only'  # in the sidecar, absent from the pickle
 
 
 @dataclass
@@ -45,6 +46,7 @@ PAIR_MISSING = 4
 PAIR_IMPORTED = 5
 PAIR_SKIPPED = 6
 PAIR_NEW = 7
+PAIR_SIDECAR_ONLY = 8
 
 
 def _decode(path: bytes) -> str:
@@ -114,6 +116,24 @@ def build_rows(
             missing=not os.path.exists(toppath),
         ))
 
+    seen_history_keys = {sidecar.path_key(paths) for paths in state.taghistory}
+
+    for key, info in sidecar_data.items():
+        if info.get('kind') == 'import-done' or key in seen_history_keys:
+            continue
+
+        paths = sidecar.decode_path_key(key)
+        group = info.get('toppath')
+        shown = _decode(paths[0]) if paths else "<empty>"
+
+        if group:
+            shown = _strip_toppath(shown, group)
+        if len(paths) > 1:
+            shown += f"  (+{len(paths) - 1} more)"
+
+        missing = not all(os.path.exists(p) for p in paths)
+        rows.append(Row(Kind.SIDECAR_ONLY, paths, shown, group=group, missing=missing))
+
     known_paths = set()
 
     for paths in state.taghistory:
@@ -121,6 +141,10 @@ def build_rows(
 
     for imported in state.tagprogress.values():
         known_paths.update(_norm_key(p) for p in imported)
+
+    for row in rows:
+        if row.kind is Kind.SIDECAR_ONLY:
+            known_paths.update(_norm_key(p) for p in row.key)
 
     for toppath, folder, files in audio_folders or []:
 
@@ -144,10 +168,15 @@ def build_rows(
 
 class UnskipperApp:
 
-    def __init__(self, path: Path, remap: Optional[Tuple[str, str]] = None):
+    def __init__(
+        self,
+        path: Path,
+        remap: Optional[Tuple[str, str]] = None,
+        sidecar_path: Optional[Path] = None,
+    ):
         self.path = path
         self.state: StateFileData = load(path)
-        self.sidecar_path = sidecar.sidecar_path(path)
+        self.sidecar_path = sidecar_path or sidecar.sidecar_path(path)
         self.sidecar_data: Dict[str, dict] = sidecar.load(self.sidecar_path)
 
         self.remap = remap
@@ -201,6 +230,7 @@ class UnskipperApp:
             curses.init_pair(PAIR_IMPORTED, curses.COLOR_GREEN, bg)
             curses.init_pair(PAIR_SKIPPED, curses.COLOR_YELLOW, bg)
             curses.init_pair(PAIR_NEW, curses.COLOR_MAGENTA, bg)
+            curses.init_pair(PAIR_SIDECAR_ONLY, curses.COLOR_BLUE, bg)
             self.has_color = True
         except curses.error:
             self.has_color = False
@@ -210,13 +240,15 @@ class UnskipperApp:
 
     def _stats(self) -> Dict[str, int]:
 
-        counts = {'imported': 0, 'skipped': 0, 'unknown': 0, 'in progress': 0, 'new': 0}
+        counts = {'imported': 0, 'skipped': 0, 'unknown': 0, 'in progress': 0, 'new': 0, 'sidecar only': 0}
 
         for row in self.rows:
             if row.kind is Kind.NEW:
                 counts['new'] += 1
             elif row.kind is Kind.PROGRESS:
                 counts['in progress'] += 1
+            elif row.kind is Kind.SIDECAR_ONLY:
+                counts['sidecar only'] += 1
             elif row.kind is Kind.HISTORY:
                 info = self.sidecar_data.get(sidecar.path_key(row.key))
                 outcome = info.get('outcome') if info else None
@@ -244,6 +276,7 @@ class UnskipperApp:
             f"Unknown: {stats['unknown']}",
             f"In progress: {stats['in progress']}",
             f"New: {stats['new']}",
+            f"Sidecar only: {stats['sidecar only']}",
         ])
         stdscr.addnstr(1, 0, stats_line.ljust(width - 1), width - 1, curses.A_DIM)
 
@@ -342,6 +375,8 @@ class UnskipperApp:
             return self._pair(PAIR_MISSING) | curses.A_BOLD
         if row.kind is Kind.NEW:
             return self._pair(PAIR_NEW) | curses.A_BOLD
+        if row.kind is Kind.SIDECAR_ONLY:
+            return self._pair(PAIR_SIDECAR_ONLY) | curses.A_BOLD
 
         return curses.A_NORMAL
 
@@ -392,7 +427,7 @@ class UnskipperApp:
             ("", "", 'plain'),
         ]
 
-        if row.kind is Kind.HISTORY:
+        if row.kind in (Kind.HISTORY, Kind.SIDECAR_ONLY):
             paths = row.key
             lines.append((f"Paths ({len(paths)}):", "", 'label'))
             for p in paths:
@@ -402,6 +437,10 @@ class UnskipperApp:
             info = self.sidecar_data.get(sidecar.path_key(paths))
             lines.append(("", "", 'plain'))
 
+            if row.kind is Kind.SIDECAR_ONLY:
+                lines.append(("", "Not present in state.pickle's taghistory.", 'dim'))
+                lines.append(("", "", 'plain'))
+
             if info:
                 lines.append(("Details:", "", 'label'))
                 outcome = info.get('outcome')
@@ -409,6 +448,7 @@ class UnskipperApp:
 
                 lines.append(("  Choice: ", str(info.get('choice')).title(), 'plain'))
                 lines.append(("  Outcome: ", str(outcome), outcome_style))
+                lines.append(("  Import kind: ", str(info.get('kind')), 'plain'))
 
                 if info.get('operation'):
                     lines.append(("  Operation: ", str(info['operation']), 'plain'))
@@ -427,6 +467,16 @@ class UnskipperApp:
                     style = 'plain' if os.path.exists(os.fsencode(info['toppath'])) else 'missing'
                     lines.append(("  Top path: ", info['toppath'], style))
 
+                lines.append(("  Resume active: ", 'yes' if info.get('in_tagprogress') else 'no', 'plain'))
+                lines.append(("  History active: ", 'yes' if info.get('in_taghistory') else 'no', 'plain'))
+
+                if info.get('in_tagprogress') and info.get('toppath'):
+                    done = self.sidecar_data.get(sidecar.import_done_key(info['toppath']))
+                    if done and done.get('ts', 0.0) >= info.get('ts', 0.0):
+                        lines.append(("  On rebuild: ", 'dropped (import-done marker is newer)', 'missing'))
+                    else:
+                        lines.append(("  On rebuild: ", 'kept in tagprogress', 'imported'))
+
                 ts = info.get('ts')
                 if ts:
                     stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
@@ -438,6 +488,14 @@ class UnskipperApp:
             imported = self.state.tagprogress.get(toppath, [])
             top_style = 'plain' if os.path.exists(toppath) else 'missing'
             lines.append(("Top path: ", _decode(toppath), top_style))
+
+            done = self.sidecar_data.get(sidecar.import_done_key(_decode(toppath)))
+            if done:
+                stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(done.get('ts', 0.0)))
+                lines.append(("Import done marker: ", f"yes (recorded {stamp})", 'imported'))
+            else:
+                lines.append(("Import done marker: ", "no", 'dim'))
+
             lines.append(("", "", 'plain'))
             lines.append((f"Tagged items ({len(imported)}):", "", 'label'))
             for p in sorted(imported):
@@ -500,6 +558,8 @@ class UnskipperApp:
                 self.sidecar_data.pop(sidecar.path_key(row.key), None)
             elif row.kind is Kind.PROGRESS:
                 self.state.tagprogress.pop(row.key, None)
+            elif row.kind is Kind.SIDECAR_ONLY:
+                self.sidecar_data.pop(sidecar.path_key(row.key), None)
 
         self.rows = build_rows(self.state, self.sidecar_data, self.audio_folders)
         self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
