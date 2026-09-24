@@ -135,7 +135,7 @@ class UnskipperApp:
         for info in self.sidecar_data.values():
             if info.get('toppath'):
                 toppaths.add(os.fsencode(info['toppath']))
-        self.audio_folders = scan.scan_audio_folders(toppaths)
+        self.audio_folders = scan.scan_folders(toppaths)
 
         self.rows: List[Row] = build_rows(self.state, self.sidecar_data, self.audio_folders)
         self.cursor = 0
