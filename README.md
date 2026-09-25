@@ -11,12 +11,6 @@ It also keeps a human-readable sidecar file (`<statefile>.unskipper.json`) with 
 per item, recorded automatically during import, and that can be used to rebuild a lost
 or corrupted `state.pickle`.
 
-## Screenshot
-
-<div align="center">
-<img src="screenshot.png" alt="Screenshot of the plugin's interface" width="1000">
-</div>
-
 ## Installation
 
 ```sh
