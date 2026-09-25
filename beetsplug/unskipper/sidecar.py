@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Iterable, Optional, Dict, Sequence
 
 PathBytes = bytes
+
+lock = threading.Lock()
 
 
 def import_done_key(toppath: str) -> str:

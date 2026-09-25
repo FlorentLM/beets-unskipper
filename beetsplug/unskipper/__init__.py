@@ -179,12 +179,13 @@ class UnskipperPlugin(BeetsPlugin):
 
         if self._toppaths and self._in_tagprogress(self._session):
             path = sidecar.sidecar_path(default_state_path())
-            data = sidecar.load(path)
+            with sidecar.lock:
+                data = sidecar.load(path)
 
-            for toppath in self._toppaths:
-                sidecar.record_import_done(data, toppath)
+                for toppath in self._toppaths:
+                    sidecar.record_import_done(data, toppath)
 
-            sidecar.save(path, data)
+                sidecar.save(path, data)
 
         self._toppaths.clear()
         self._session = None
@@ -226,20 +227,22 @@ class UnskipperPlugin(BeetsPlugin):
     ) -> None:
 
         path = sidecar.sidecar_path(default_state_path())
-        data = sidecar.load(path)
         session = rec['session']
 
-        sidecar.record(
-            data, rec['paths'], rec['toppath'], outcome,
-            choice=rec['task'].choice_flag.name if rec['task'].choice_flag else None,
-            operation=operation,
-            release=release,
-            kind='album' if rec['task'].is_album else 'singleton',
-            in_tagprogress=self._in_tagprogress(session),
-            in_taghistory=self._in_taghistory(session, outcome),
-            dest_paths=dest_paths,
-        )
-        sidecar.save(path, data)
+        with sidecar.lock:
+            data = sidecar.load(path)
+
+            sidecar.record(
+                data, rec['paths'], rec['toppath'], outcome,
+                choice=rec['task'].choice_flag.name if rec['task'].choice_flag else None,
+                operation=operation,
+                release=release,
+                kind='album' if rec['task'].is_album else 'singleton',
+                in_tagprogress=self._in_tagprogress(session),
+                in_taghistory=self._in_taghistory(session, outcome),
+                dest_paths=dest_paths,
+            )
+            sidecar.save(path, data)
 
     @staticmethod
     def _in_tagprogress(session) -> bool:
