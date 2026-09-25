@@ -1,29 +1,24 @@
 # beets-unskipper
 
-Ultra simple [beets](https://beets.io) plugin to browse and edit beets' import state
-file (`state.pickle`) with a tiny terminal UI.
+A [beets](https://beets.io) plugin to browse and edit beets' import state
+file (`state.pickle`) with a small terminal UI.
 
-Beets records which album/track directories it has already imported in
-`state.pickle`. An `--incremental` import skips anything already recorded
-there, even if a past import was aborted partway through or the tags need
-reworking later. `unskipper` opens that file, lets you look through what is
-recorded, and remove entries so beets will reconsider those directories on
-the next import.
+Beets records already-imported directories in `state.pickle`, and then any other import with
+`--incremental` will skip anything listed in there. `unskipper` lets you browse this
+file and remove ("unskip") entries, so beets will reconsider them next time you import.
 
-**Status: early skeleton.** Browsing, marking and deleting `taghistory` /
-`tagprogress` entries works. Filtering, search, and undo are not implemented
-yet.
+It also keeps a human-readable sidecar file (`<statefile>.unskipper.json`) with additional data
+per item, recorded automatically during import, and that can be used to rebuild a lost
+or corrupted `state.pickle`.
 
 ## Installation
-
-Clone and install:
 
 ```sh
 git clone https://github.com/FlorentLM/beets-unskipper
 uv pip install beets-unskipper
 ```
 
-or if you used Beets' default `uv tool` install:
+or with Beets' default `uv tool` install:
 
 ```sh
 uv tool install beets --with ./beets-unskipper --reinstall
@@ -37,21 +32,21 @@ Then add `unskipper` to the `plugins` line in your beets config.
 beet unskipper
 ```
 
-Opens the state file at the location beets is configured to use. Pass
-`-f/--file` to point at a different `state.pickle`:
-
-```sh
-beet unskipper -f /path/to/state.pickle
-```
+| Option                   | Description                                                     |
+|--------------------------|-----------------------------------------------------------------|
+| `-s`, `--state-file`     | Path to `state.pickle` (default: beets' configured location)    |
+| `-j`, `--unskipper-json` | Path to the sidecar JSON (default: alongside the state file)    |
+| `-r`, `--remap OLD=NEW`  | Remap paths starting with `OLD` to `NEW` when loading           |
+| `--rebuild`              | Rebuild `state.pickle` from the sidecar JSON, then exit         |
+| `-d`, `--dry-run`        | With `--rebuild`, preview changes without writing               |
 
 ### Keys
 
-| Key            | Action                                                      |
-|----------------|---------------------------------------------------------------|
-| `↓`            | move down                                                    |
-| `↑`            | move up                                                      |
-| `a`-`z`        | jump to the next row starting with that letter               |
-| `space`        | mark/unmark the current row                                  |
-| `Del`          | delete marked rows (or the current one if none are marked)   |
-| `Ctrl+S`       | write changes back to the state file                         |
-| `Ctrl+Q`/`Esc` | quit                                                          |
+| Key               | Action                                                     |
+|-------------------|------------------------------------------------------------|
+| `↓`/`↑`           | move                                                       |
+| `a`-`z`           | jump to next row starting with that letter                 |
+| `space`           | mark/unmark row                                            |
+| `Del`/`Backspace` | delete marked rows (or current one if none marked)         |
+| `Ctrl+S`          | save                                                       |
+| `Esc`             | quit                                                       |
