@@ -94,7 +94,7 @@ class UnskipperPlugin(BeetsPlugin):
         if not path.exists():
             raise ui.UserError(f'State file not found: {path}')
 
-        UnskipperApp(path, remap=remap, sidecar_path=sidecar_path).run()
+        UnskipperApp(path, remap=remap, sidecar_path=sidecar_path, lib=lib).run()
 
     @staticmethod
     def _rebuild(path: Path, sidecar_path: Path, remap, dry_run: bool = False) -> None:

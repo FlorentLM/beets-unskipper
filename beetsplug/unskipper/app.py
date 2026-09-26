@@ -11,12 +11,15 @@ import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple, List, TYPE_CHECKING
 
 from . import sidecar
 from . import scan
 from . import pathremap
 from .statefile import StateFileData, load, save
+
+if TYPE_CHECKING:
+    from beets.library import Library
 
 
 class Kind(Enum):
@@ -173,15 +176,29 @@ class UnskipperApp:
         path: Path,
         remap: Optional[Tuple[str, str]] = None,
         sidecar_path: Optional[Path] = None,
+        lib: Optional['Library'] = None,
     ):
         self.path = path
-        self.state: StateFileData = load(path)
         self.sidecar_path = sidecar_path or sidecar.sidecar_path(path)
+        self.remap = remap
+        self.lib = lib
+
+        self.cursor = 0
+        self.top = 0
+        self.dirty = False
+        self.stdscr = None
+
+        self._reload()
+
+    def _reload(self) -> None:
+        """
+        (Re)load the state and sidecar files and rebuild rows.
+        """
+        self.state: StateFileData = load(self.path)
         self.sidecar_data: Dict[str, dict] = sidecar.load(self.sidecar_path)
 
-        self.remap = remap
-        if remap:
-            old, new = remap
+        if self.remap:
+            old, new = self.remap
             self.state = pathremap.remap_state(self.state, old, new)
             self.sidecar_data = pathremap.remap_sidecar(self.sidecar_data, old, new)
 
@@ -192,14 +209,14 @@ class UnskipperApp:
         self.audio_folders = scan.scan_folders(toppaths)
 
         self.rows: List[Row] = build_rows(self.state, self.sidecar_data, self.audio_folders)
-        self.cursor = 0
-        self.top = 0
+        self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
         self.dirty = False
 
     def run(self) -> None:
         curses.wrapper(self._main)
 
     def _main(self, stdscr) -> None:
+        self.stdscr = stdscr
         curses.curs_set(0)
         curses.raw()
         stdscr.keypad(True)
@@ -293,6 +310,7 @@ class UnskipperApp:
         footer = '  |  '.join([
             '↑/↓: move',
             '+/-: next/prev new',
+            'enter: import (new)',
             'space: mark',
             'del: delete marked',
             '^s: save',
@@ -508,6 +526,11 @@ class UnskipperApp:
             decoded_folder = _decode(folder)
             lines.append(("Folder: ", decoded_folder, 'plain'))
             lines.append(("", "", 'plain'))
+
+            if self.lib is not None:
+                lines.append(("", "Press Enter to import this folder.", 'dim'))
+                lines.append(("", "", 'plain'))
+
             lines.append((f"Audio files ({len(files)}):", "", 'label'))
             for p in files:
                 name = _strip_toppath(_decode(p), decoded_folder)
@@ -530,6 +553,8 @@ class UnskipperApp:
             self._delete_marked()
         elif key == 19:  # ctrl + s
             self._write()
+        elif key in (10, 13, curses.KEY_ENTER):
+            self._import_selected()
         elif key in (ord('+'), ord('=')):
             self._jump_to(Kind.NEW, 1)
         elif key == ord('-'):
@@ -586,3 +611,49 @@ class UnskipperApp:
         save(self.path, self.state)
         sidecar.save(self.sidecar_path, self.sidecar_data)
         self.dirty = False
+
+    def _import_selected(self) -> None:
+
+        if not self.rows or self.lib is None:
+            return
+
+        row = self.rows[self.cursor]
+        if row.kind is not Kind.NEW:
+            return
+
+        folder, _files = row.key
+        self._run_import([folder])
+
+    def _run_import(self, paths: List[bytes]) -> None:
+        """
+        Suspend curses and run a `beet import` on `paths`.
+        """
+        from beets import config
+        from beets.ui.commands.import_ import import_files
+
+        # Flush any pending edits
+        if self.dirty:
+            self._write()
+
+        curses.def_prog_mode()
+        curses.endwin()
+
+        # Force single-threaded mode temporarily
+        prev_threaded = config['threaded'].get()
+        config['threaded'] = False
+
+        try:
+            print()
+            import_files(self.lib, paths, None)
+        except KeyboardInterrupt:
+            print('\nImport interrupted.')
+        except Exception as exc:
+            print(f'\nImport failed: {exc}')
+        finally:
+            config['threaded'] = prev_threaded
+            input('\nPress Enter to return to unskipper...')
+            curses.reset_prog_mode()
+            self.stdscr.clear()
+            self.stdscr.refresh()
+
+        self._reload()
