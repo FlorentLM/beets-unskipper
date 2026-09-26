@@ -292,6 +292,7 @@ class UnskipperApp:
 
         footer = '  |  '.join([
             '↑/↓: move',
+            '+/-: next/prev new',
             'space: mark',
             'del: delete marked',
             '^s: save',
@@ -529,6 +530,10 @@ class UnskipperApp:
             self._delete_marked()
         elif key == 19:  # ctrl + s
             self._write()
+        elif key in (ord('+'), ord('=')):
+            self._jump_to(Kind.NEW, 1)
+        elif key == ord('-'):
+            self._jump_to(Kind.NEW, -1)
         elif 0 <= key < 256 and chr(key).isalpha():
             self._jump_to_letter(chr(key).lower())
 
@@ -543,6 +548,18 @@ class UnskipperApp:
         for offset in range(1, n + 1):
             idx = (self.cursor + offset) % n
             if self.rows[idx].label.lower().startswith(ch):
+                self.cursor = idx
+                return
+
+    def _jump_to(self, kind: Kind, direction: int) -> None:
+
+        n = len(self.rows)
+        if not n:
+            return
+
+        for offset in range(1, n + 1):
+            idx = (self.cursor + direction * offset) % n
+            if self.rows[idx].kind is kind:
                 self.cursor = idx
                 return
 
