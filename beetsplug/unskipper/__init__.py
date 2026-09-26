@@ -5,6 +5,7 @@ Beets plugin unskipper: browse and edit beets' import state file
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
@@ -205,6 +206,10 @@ class UnskipperPlugin(BeetsPlugin):
             f'album art path(s) in the beets database. Continue?', require=True
         ):
             return
+
+        if lib.path.exists():
+            backup_path = lib.path.with_name(lib.path.name + '.bak')
+            shutil.copy2(lib.path, backup_path)
 
         with lib.transaction():
             for item, new_path in item_changes:
