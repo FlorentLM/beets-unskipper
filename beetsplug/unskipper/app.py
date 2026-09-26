@@ -315,7 +315,7 @@ class UnskipperApp:
             '+/-: next/prev new',
             'enter: import (new)',
             'space: mark',
-            'del: delete marked',
+            'del: delete marked (or ignore if new)',
             '^s: save',
             'esc: quit',
             'a-z: jump to letter'
@@ -340,7 +340,7 @@ class UnskipperApp:
                     display.append((f" {header}", None, True))
 
             if row.kind is Kind.NEW:
-                mark = '[●]'
+                mark = '[✕]' if row.marked else '[●]'
             else:
                 mark = '[✕]' if row.marked else '[ ]'
             if row.kind is Kind.PROGRESS:
@@ -554,7 +554,7 @@ class UnskipperApp:
         elif key in (curses.KEY_SR, curses.KEY_PPAGE):  # shift+up / page up
             self.cursor = max(self.cursor - self.page_size, 0)
         elif key == ord(' '):
-            if self.rows and self.rows[self.cursor].kind is not Kind.NEW:
+            if self.rows:
                 self.rows[self.cursor].marked = not self.rows[self.cursor].marked
         elif key in (curses.KEY_DC, curses.KEY_BACKSPACE, 127, 8):
             self._delete_marked()
@@ -596,6 +596,10 @@ class UnskipperApp:
                 return
 
     def _delete_marked(self) -> None:
+        """
+        For rows that exist in beets' history/progress, this "unskips" them.
+        For `new` rows, this does the opposite: it adds one with outcome 'skipped' so beets ignores them.
+        """
 
         marked = [r for r in self.rows if r.marked]
         if not marked and self.rows:
@@ -609,10 +613,30 @@ class UnskipperApp:
                 self.state.tagprogress.pop(row.key, None)
             elif row.kind is Kind.SIDECAR_ONLY:
                 self.sidecar_data.pop(sidecar.path_key(row.key), None)
+            elif row.kind is Kind.NEW:
+                self._ignore(row)
 
         self.rows = build_rows(self.state, self.sidecar_data, self.audio_folders)
         self.cursor = min(self.cursor, max(len(self.rows) - 1, 0))
         self.dirty = True
+
+    def _ignore(self, row: Row) -> None:
+        """
+        Records a row as skipped without importing it.
+        """
+        folder, files = row.key
+        paths = files if files else (folder,)
+        toppath = os.fsencode(row.group) if row.group else None
+
+        self.state.taghistory.add(paths)
+        sidecar.record(
+            self.sidecar_data,
+            paths,
+            toppath,
+            outcome='skipped',
+            choice='ignore',
+            in_taghistory=True,
+        )
 
     def _write(self) -> None:
         save(self.path, self.state)
