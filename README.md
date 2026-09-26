@@ -60,13 +60,14 @@ Add `-d`/`--dry-run` to either command to preview what would change without writ
 
 ### Keys
 
-| Key               | Action                                                                          |
-|-------------------|---------------------------------------------------------------------------------|
-| `↓`/`↑`           | move                                                                            |
-| `a`-`z`           | jump to next row starting with that letter                                      |
-| `+`/`-`           | jump to next entry marked new (unimported)                                      |
-| `Enter`           | run `beet import` on the selected new folder (using your existing beets config) |
-| `space`           | mark/unmark row                                                                 |
-| `Del`/`Backspace` | delete marked rows (or current one if none marked)                              |
-| `Ctrl+S`          | save                                                                            |
-| `Esc`             | quit                                                                            |
+| Key                                | Action                                                                          |
+|------------------------------------|---------------------------------------------------------------------------------|
+| `↓`/`↑`                            | move                                                                            |
+| `Shift+↓`/`Shift+↑`, `PgDn`/`PgUp` | move by a page                                                                  |
+| `a`-`z`                            | jump to next row starting with that letter                                      |
+| `+`/`-`                            | jump to next entry marked new (unimported)                                      |
+| `Enter`                            | run `beet import` on the selected new folder (using your existing beets config) |
+| `space`                            | mark/unmark row                                                                 |
+| `Del`/`Backspace`                  | delete marked rows (or current one if none marked)                              |
+| `Ctrl+S`                           | save                                                                            |
+| `Esc`                              | quit                                                                            |

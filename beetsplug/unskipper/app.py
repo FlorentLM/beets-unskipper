@@ -187,6 +187,7 @@ class UnskipperApp:
         self.top = 0
         self.dirty = False
         self.stdscr = None
+        self.page_size = 10
 
         self._reload()
 
@@ -298,6 +299,7 @@ class UnskipperApp:
         stdscr.addnstr(1, 0, stats_line.ljust(width - 1), width - 1, curses.A_DIM)
 
         visible = max(height - 3, 0)
+        self.page_size = max(visible, 1)
         list_width = max(min(width // 2, 80), 30) if width > 40 else width
 
         self._draw_list(stdscr, 2, 0, list_width, visible)
@@ -309,6 +311,7 @@ class UnskipperApp:
 
         footer = '  |  '.join([
             '↑/↓: move',
+            'shift+↑/↓ or pgup/pgdn: page',
             '+/-: next/prev new',
             'enter: import (new)',
             'space: mark',
@@ -546,6 +549,10 @@ class UnskipperApp:
             self.cursor = min(self.cursor + 1, max(len(self.rows) - 1, 0))
         elif key == curses.KEY_UP:
             self.cursor = max(self.cursor - 1, 0)
+        elif key in (curses.KEY_SF, curses.KEY_NPAGE):  # shift+down / page down
+            self.cursor = min(self.cursor + self.page_size, max(len(self.rows) - 1, 0))
+        elif key in (curses.KEY_SR, curses.KEY_PPAGE):  # shift+up / page up
+            self.cursor = max(self.cursor - self.page_size, 0)
         elif key == ord(' '):
             if self.rows and self.rows[self.cursor].kind is not Kind.NEW:
                 self.rows[self.cursor].marked = not self.rows[self.cursor].marked
