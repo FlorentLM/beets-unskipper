@@ -4,8 +4,9 @@ Beets plugin unskipper: browse and edit beets' import state file
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 
 from beets import ui
 from beets.importer import SentinelImportTask
@@ -56,6 +57,10 @@ class UnskipperPlugin(BeetsPlugin):
             help="Overwrite state.pickle by rebuilding it from the sidecar JSON",
         )
         cmd.parser.add_option(
+            '--migrate-db', action='store_true', dest='migrate_db',
+            help="Rewrite item/album paths in the beets database using --remap OLD=NEW",
+        )
+        cmd.parser.add_option(
             '-d', '--dry-run', action='store_true', dest='dry_run',
             help="With --rebuild, print a summary of what would change without writing state.pickle",
         )
@@ -75,6 +80,12 @@ class UnskipperPlugin(BeetsPlugin):
             except ValueError as exc:
                 raise ui.UserError(f'--remap {exc}')
 
+        if opts.migrate_db:
+            if not remap:
+                raise ui.UserError('--migrate-db requires --remap OLD=NEW')
+            self._migrate_db(lib, remap, dry_run=bool(opts.dry_run))
+            return
+
         if opts.rebuild:
             self._rebuild(path, sidecar_path, remap, dry_run=bool(opts.dry_run))
             return
@@ -92,21 +103,31 @@ class UnskipperPlugin(BeetsPlugin):
             raise ui.UserError(f'Sidecar file not found: {sidecar_path}')
 
         data = sidecar.load(sidecar_path)
+        new_data = data
         if remap:
             old, new = remap
-            data = pathremap.remap_sidecar(data, old, new)
+            new_data = pathremap.remap_sidecar(data, old, new)
 
-        new_state = from_sidecar(data)
+        new_state = from_sidecar(new_data)
+        sidecar_changed = new_data != data
 
         if dry_run:
             old_state = load_state(path) if path.exists() else StateFileData()
             UnskipperPlugin._print_rebuild_diff(path, old_state, new_state)
+            if sidecar_changed:
+                print(f'  sidecar: {sidecar_path} would also be rewritten in place with remapped paths')
             return
 
-        if path.exists() and not ui.input_yn(
-            f'This will overwrite {path}. Continue?', require=True
-        ):
+        prompt = f'This will overwrite {path}'
+        if sidecar_changed:
+            prompt += f' and remap paths in {sidecar_path}'
+        prompt += '. Continue?'
+
+        if (path.exists() or sidecar_changed) and not ui.input_yn(prompt, require=True):
             return
+
+        if sidecar_changed:
+            sidecar.save(sidecar_path, new_data)
 
         save_state(path, new_state)
         print(
@@ -114,6 +135,8 @@ class UnskipperPlugin(BeetsPlugin):
             f'({len(new_state.taghistory)} taghistory entries, '
             f'{len(new_state.tagprogress)} tagprogress toppaths)'
         )
+        if sidecar_changed:
+            print(f'Remapped paths in {sidecar_path}.')
 
     @staticmethod
     def _print_rebuild_diff(path: Path, old_state: StateFileData, new_state: StateFileData) -> None:
@@ -140,6 +163,58 @@ class UnskipperPlugin(BeetsPlugin):
             f'  tagprogress: {len(old_state.tagprogress)} -> {len(new_state.tagprogress)} toppaths '
             f'(+{len(added_progress)}, -{len(removed_progress)}, ~{len(changed_progress)} changed)'
         )
+
+    @staticmethod
+    def _migrate_db(lib, remap: Tuple[str, str], dry_run: bool = False) -> None:
+
+        old, new = remap
+        old_b = os.fsencode(old.rstrip(os.sep))
+        new_b = os.fsencode(new.rstrip(os.sep))
+
+        item_changes = []
+        for item in lib.items():
+            new_path = pathremap.remap_bytes(item.path, old_b, new_b)
+            if new_path != item.path:
+                item_changes.append((item, new_path))
+
+        album_changes = []
+        for album in lib.albums():
+            if not album.artpath:
+                continue
+            new_artpath = pathremap.remap_bytes(album.artpath, old_b, new_b)
+            if new_artpath != album.artpath:
+                album_changes.append((album, new_artpath))
+
+        print(
+            f'{len(item_changes)} item path(s) and {len(album_changes)} album art path(s) '
+            f'would be remapped ({old} -> {new}).'
+        )
+
+        if dry_run:
+            for item, new_path in item_changes[:20]:
+                print(f'  {os.fsdecode(item.path)} -> {os.fsdecode(new_path)}')
+            if len(item_changes) > 20:
+                print(f'  … (+{len(item_changes) - 20} more)')
+            return
+
+        if not (item_changes or album_changes):
+            return
+
+        if not ui.input_yn(
+            f'This will rewrite {len(item_changes)} item path(s) and {len(album_changes)} '
+            f'album art path(s) in the beets database. Continue?', require=True
+        ):
+            return
+
+        with lib.transaction():
+            for item, new_path in item_changes:
+                item.path = new_path
+                item.store()
+            for album, new_artpath in album_changes:
+                album.artpath = new_artpath
+                album.store()
+
+        print('Database paths migrated.')
 
     # Import-time sidecar recording
 
