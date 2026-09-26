@@ -32,21 +32,36 @@ Then add `unskipper` to the `plugins` line in your beets config.
 beet unskipper
 ```
 
-| Option                   | Description                                                     |
-|--------------------------|-----------------------------------------------------------------|
-| `-s`, `--state-file`     | Path to `state.pickle` (default: beets' configured location)    |
-| `-j`, `--unskipper-json` | Path to the sidecar JSON (default: alongside the state file)    |
-| `-r`, `--remap OLD=NEW`  | Remap paths starting with `OLD` to `NEW` when loading           |
-| `--rebuild`              | Rebuild `state.pickle` from the sidecar JSON, then exit         |
-| `-d`, `--dry-run`        | With `--rebuild`, preview changes without writing               |
+| Option                     | Description                                                               |
+|----------------------------|---------------------------------------------------------------------------|
+| `-s`, `--state-file`       | Path to `state.pickle` (default: beets' configured location)              |
+| `-j`, `--unskipper-json`   | Path to the sidecar JSON (default: alongside the state file)              |
+| `-r`, `--remap OLD=NEW`    | Remap paths starting with `OLD` to `NEW` when loading                     |
+| `--rebuild`                | Rebuild `state.pickle` from the sidecar JSON, then exit                   |
+| `--migrate-db`             | With `--remap`, rewrite item/album paths in the beets database, then exit |
+| `-d`, `--dry-run`          | With `--rebuild` or `--migrate-db`, preview changes without writing       |
+
+### Moving your music library
+
+If you move your whole library to a new location (new drive, new mount point, etc.),
+`--remap` can update everything that beets-unskipper and beets itself track, so incremental
+imports and the state UI keep working against the new paths:
+
+```sh
+beet unskipper --remap /old/path=/new/path --migrate-db    # rewrite paths in the beets database
+beet unskipper --remap /old/path=/new/path --rebuild       # rebuild state.pickle and apply the remap to the sidecar
+```
+
+Add `-d`/`--dry-run` to either command to preview what would change without writing anything.
 
 ### Keys
 
-| Key               | Action                                                     |
-|-------------------|------------------------------------------------------------|
-| `↓`/`↑`           | move                                                       |
-| `a`-`z`           | jump to next row starting with that letter                 |
-| `space`           | mark/unmark row                                            |
-| `Del`/`Backspace` | delete marked rows (or current one if none marked)         |
-| `Ctrl+S`          | save                                                       |
-| `Esc`             | quit                                                       |
+| Key               | Action                                             |
+|-------------------|----------------------------------------------------|
+| `↓`/`↑`           | move                                               |
+| `a`-`z`           | jump to next row starting with that letter         |
+| `+`/`-`           | jump to next entry marked new (unimported)         |
+| `space`           | mark/unmark row                                    |
+| `Del`/`Backspace` | delete marked rows (or current one if none marked) |
+| `Ctrl+S`          | save                                               |
+| `Esc`             | quit                                               |
