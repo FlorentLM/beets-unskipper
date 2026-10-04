@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "beets-unskipper"
-version = "0.1.0"
+version = "1.0.0"
 description = "Beets plugin to browse and edit the import state file (state.pickle) with a small TUI"
 authors = [
     {name = "Florent Le Moël", email = "25004801+FlorentLM@users.noreply.github.com"},
