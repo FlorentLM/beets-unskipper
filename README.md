@@ -11,22 +11,28 @@ It also keeps a human-readable sidecar file (`<statefile>.unskipper.json`) with 
 per item, recorded automatically during import, and that can be used to rebuild a lost
 or corrupted `state.pickle`.
 
+The sidecar stays in sync with `state.pickle`: entries that disappear from the pickle (removed by
+another tool, or unskipped) are marked as such (when you open the UI and after each import).
+
 <div align="center">
-<img src="screenshot.png" alt="Screenshot of te plugin's interface" width="900">
+<img src="screenshot.png" alt="Screenshot of the plugin's interface" width="900">
 </div>
 
 ## Installation
 
-```sh
-git clone https://github.com/FlorentLM/beets-unskipper
-uv pip install beets-unskipper
-```
-
-or with Beets' default `uv tool` install:
+Install from [PyPI](https://pypi.org/project/beets-unskipper/) into the same environment as beets:
 
 ```sh
-uv tool install beets --with ./beets-unskipper --reinstall
+pip install beets-unskipper
 ```
+
+or, if you installed beets as a `uv` tool:
+
+```sh
+uv tool install beets --with beets-unskipper --reinstall
+```
+
+To upgrade, use `pip install -U beets-unskipper`, or re-run the `uv tool` command above.
 
 Then add `unskipper` to the `plugins` line in your beets config.
 
