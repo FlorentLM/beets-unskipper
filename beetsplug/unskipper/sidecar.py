@@ -77,3 +77,36 @@ def record_import_done(data: Dict[str, dict], toppath: PathBytes) -> None:
         'toppath': os.fsdecode(toppath),
         'ts': time.time(),
     }
+
+
+def reconcile(data: Dict[str, dict], taghistory: Iterable[tuple[PathBytes, ...]]) -> int:
+    """
+    Update the sidecar to follow state.pickle. Returns number of changes.
+
+    - A record the pickle no longer has (removed by another tool or an unskip)
+      gets `in_taghistory` cleared.
+    - A multi-folder record that the pickle lists one folder at a time is split the
+      same way (so that `--rebuild` does not bring back the combined entry)
+    """
+    listed = set(taghistory)
+    singles = {p for entry in listed for p in entry}
+    changed = 0
+
+    for key, info in list(data.items()):
+        if info.get('kind') == 'import-done' or not info.get('in_taghistory'):
+            continue
+
+        paths = decode_path_key(key)
+        if paths in listed:
+            continue
+
+        if len(paths) > 1 and all(p in singles for p in paths):
+            del data[key]
+            for p in paths:
+                data[path_key((p,))] = dict(info)
+        else:
+            info['in_taghistory'] = False
+
+        changed += 1
+
+    return changed

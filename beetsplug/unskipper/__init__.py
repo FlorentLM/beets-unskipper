@@ -15,6 +15,7 @@ from beets.plugins import BeetsPlugin
 
 from . import sidecar
 from . import pathremap
+from . import statefile
 from .statefile import default_state_path, StateFileData
 
 
@@ -94,6 +95,7 @@ class UnskipperPlugin(BeetsPlugin):
         if not path.exists():
             raise ui.UserError(f'State file not found: {path}')
 
+        self._reconcile(path, sidecar_path)
         UnskipperApp(path, remap=remap, sidecar_path=sidecar_path, lib=lib).run()
 
     @staticmethod
@@ -240,9 +242,18 @@ class UnskipperPlugin(BeetsPlugin):
         }
 
     def _on_files(self, session, task) -> None:
-        # Fires once a task's status is set to "not skipped", after
-        # files have been moved/copied/linked
+        # Fires once a task's status is set to "not skipped", after files have been moved/copied/linked
+
         rec = self._pending.pop(id(task), None)
+
+        # Tasks that were merged into this one (multi-disc etc) never reach this event
+        mine = set(task.paths)
+        merged = [key for key, other in self._pending.items() if set(other['paths']) <= mine]
+        merged_recs = [self._pending.pop(key) for key in merged]
+
+        if rec is None and merged_recs:
+            rec = {**merged_recs[0], 'task': task, 'paths': tuple(task.paths)}
+
         if rec is not None:
             self._record(
                 rec, outcome='imported',
@@ -251,7 +262,27 @@ class UnskipperPlugin(BeetsPlugin):
                 dest_paths=[item.path for item in task.imported_items()],
             )
 
+    @staticmethod
+    def _reconcile(state_path: Path, sidecar_path: Path) -> None:
+        """Update the sidecar to follow state.pickle."""
+
+        if not (state_path.exists() and sidecar_path.exists()):
+            return
+
+        try:
+            history = statefile.load(state_path).taghistory
+        # Any exception considered as unreadable pickle: leave the sidecar unchanged
+        except Exception:   # noqa: BLE001
+            return
+
+        with sidecar.lock:
+            data = sidecar.load(sidecar_path)
+            if sidecar.reconcile(data, history):
+                sidecar.save(sidecar_path, data)
+
     def _on_exit(self, lib) -> None:
+        touched = bool(self._toppaths or self._pending)
+
         # Anything still pending never reached import_task_files: it was skipped
         for rec in self._pending.values():
             self._record(rec, outcome='skipped', release=self._release_id(rec['task']))
@@ -266,6 +297,10 @@ class UnskipperPlugin(BeetsPlugin):
                     sidecar.record_import_done(data, toppath)
 
                 sidecar.save(path, data)
+
+        if touched:
+            state_path = default_state_path()
+            self._reconcile(state_path, sidecar.sidecar_path(state_path))
 
         self._toppaths.clear()
         self._session = None
