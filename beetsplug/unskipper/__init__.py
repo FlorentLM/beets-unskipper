@@ -63,8 +63,12 @@ class UnskipperPlugin(BeetsPlugin):
             help="Rewrite item/album paths in the beets database using --remap OLD=NEW",
         )
         cmd.parser.add_option(
+            '--split', action='store_true', dest='split',
+            help="Record the folders of multi-folder history entries one by one too, then exit",
+        )
+        cmd.parser.add_option(
             '-d', '--dry-run', action='store_true', dest='dry_run',
-            help="With --rebuild, print a summary of what would change without writing state.pickle",
+            help="With --rebuild or --split, print a summary of what would change without writing anything",
         )
         cmd.func = self._run
         return [cmd]
@@ -88,6 +92,10 @@ class UnskipperPlugin(BeetsPlugin):
             self._migrate_db(lib, remap, dry_run=bool(opts.dry_run))
             return
 
+        if opts.split:
+            self._split(path, sidecar_path, dry_run=bool(opts.dry_run))
+            return
+
         if opts.rebuild:
             self._rebuild(path, sidecar_path, remap, dry_run=bool(opts.dry_run))
             return
@@ -97,6 +105,43 @@ class UnskipperPlugin(BeetsPlugin):
 
         self._reconcile(path, sidecar_path)
         UnskipperApp(path, remap=remap, sidecar_path=sidecar_path, lib=lib).run()
+
+    @staticmethod
+    def _split(path: Path, sidecar_path: Path, dry_run: bool = False) -> None:
+        """
+        Adds a single-folder history entry for each folder of multi-folder entries
+        so incremental imports skip each folder independently.
+        """
+        if not path.exists():
+            raise ui.UserError(f'State file not found: {path}')
+
+        state = statefile.load(path)
+        new, skipped = sidecar.folders_to_split(state.taghistory)
+
+        print(f'{len(new)} folder(s) of multi-folder entries have no subfolders'
+              + (f' ({skipped} other path(s) are not folders)' if skipped else '') + '.')
+
+        if dry_run:
+            for single in sorted(new)[:20]:
+                print(f'  {os.fsdecode(single[0])}')
+            if len(new) > 20:
+                print(f'  … (+{len(new) - 20} more)')
+            return
+
+        if not new:
+            return
+
+        prompt = f'This will add {len(new)} entries to {path} (make sure no import is running). Continue?'
+        if not ui.input_yn(prompt, require=True):
+            return
+
+        shutil.copy2(path, path.with_name(path.name + '.bak'))
+        state.taghistory |= set(new)
+        statefile.save(path, state)
+
+        print(f'Added {len(new)} entries to {path} (backup: {path.name}.bak).')
+
+        UnskipperPlugin._reconcile(path, sidecar_path)
 
     @staticmethod
     def _rebuild(path: Path, sidecar_path: Path, remap, dry_run: bool = False) -> None:

@@ -109,4 +109,78 @@ def reconcile(data: Dict[str, dict], taghistory: Iterable[tuple[PathBytes, ...]]
 
         changed += 1
 
+    return changed + adopt_orphans(data, listed)
+
+
+def adopt_orphans(data: Dict[str, dict], taghistory: Iterable[tuple[PathBytes, ...]]) -> int:
+    """
+    Add a sidecar record for history entries that unskipper never saw being created.
+    Returns number of changes.
+    (a folder that is part of a multi-folder record inherits that record's details)
+    """
+    members: dict[PathBytes, dict] = {}
+    toppaths: set[bytes] = set()
+
+    for key, info in data.items():
+        if info.get('toppath'):
+            toppaths.add(os.fsencode(info['toppath']).rstrip(os.sep.encode()) or os.sep.encode())
+        if info.get('kind') == 'import-done':
+            continue
+        paths = decode_path_key(key)
+        if len(paths) > 1:
+            for p in paths:
+                members.setdefault(p, info)
+
+    sep = os.sep.encode()
+    changed = 0
+
+    for paths in taghistory:
+        key = path_key(paths)
+        if key in data or not paths:
+            continue
+
+        parent = members.get(paths[0]) if len(paths) == 1 else None
+        if parent is not None:
+            data[key] = {**parent, 'in_taghistory': True, 'in_tagprogress': False, 'dest_paths': None}
+            changed += 1
+            continue
+
+        candidates = [t for t in toppaths if paths[0] == t or paths[0].startswith(t.rstrip(sep) + sep)]
+        if candidates:
+            data[key] = {
+                'kind': 'album',
+                'toppath': os.fsdecode(max(candidates, key=len)),
+                'outcome': None,
+                'in_taghistory': True,
+                'in_tagprogress': False,
+                'ts': time.time(),
+            }
+            changed += 1
+
     return changed
+
+
+def folders_to_split(
+        taghistory: Iterable[tuple[PathBytes, ...]],
+    ) -> tuple[dict[tuple[PathBytes, ...], tuple[PathBytes, ...]], int]:
+    """
+    Single-folder entries missing for multi-folder entries.
+    """
+
+    existing = set(taghistory)
+    missing: dict[tuple[PathBytes, ...], tuple[PathBytes, ...]] = {}
+    not_dirs: set[PathBytes] = set()
+
+    for entry in sorted(existing):
+        if len(entry) < 2:
+            continue
+        for p in entry:
+            single = (p,)
+            if single in existing or single in missing:
+                continue
+            if os.path.isdir(p):
+                missing[single] = entry
+            else:
+                not_dirs.add(p)
+
+    return missing, len(not_dirs)
