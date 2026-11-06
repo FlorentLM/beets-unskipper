@@ -42,14 +42,24 @@ Then add `unskipper` to the `plugins` line in your beets config.
 beet unskipper
 ```
 
-| Option                     | Description                                                               |
-|----------------------------|---------------------------------------------------------------------------|
-| `-s`, `--state-file`       | Path to `state.pickle` (default: beets' configured location)              |
-| `-j`, `--unskipper-json`   | Path to the sidecar JSON (default: alongside the state file)              |
-| `-r`, `--remap OLD=NEW`    | Remap paths starting with `OLD` to `NEW` when loading                     |
-| `--rebuild`                | Rebuild `state.pickle` from the sidecar JSON, then exit                   |
-| `--migrate-db`             | With `--remap`, rewrite item/album paths in the beets database, then exit |
-| `-d`, `--dry-run`          | With `--rebuild` or `--migrate-db`, preview changes without writing       |
+| Option                     | Description                                                                    |
+|----------------------------|--------------------------------------------------------------------------------|
+| `-s`, `--state-file`       | Path to `state.pickle` (default: beets' configured location)                   |
+| `-j`, `--unskipper-json`   | Path to the sidecar JSON (default: alongside the state file)                   |
+| `-r`, `--remap OLD=NEW`    | Remap paths starting with `OLD` to `NEW` when loading                          |
+| `--rebuild`                | Rebuild `state.pickle` from the sidecar JSON, then exit                        |
+| `--migrate-db`             | With `--remap`, rewrite item/album paths in the beets database, then exit      |
+| `--split`                  | Also record the folders of multi-folder entries one by one, then exit          |
+| `-d`, `--dry-run`          | With `--rebuild`, `--split` or `--migrate-db`, preview changes without writing |
+
+### Multi-folder entries
+
+When beets imports a multi-disc album, or merges a disc into an album that is already in the library,
+it records the folders together as one entry. Annoyingly, if a later scan finds one of those discs, it doesn't
+match the entry and beets considers it new.
+
+`beet unskipper --split` adds an entry for each of these subfolders, so any later incremental imports properly
+skips them. A backup is saved next to `state.pickle`. Use `-d` to preview. Stop any running import first.
 
 ### Moving your music library
 
